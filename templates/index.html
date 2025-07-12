@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Gutenberg Books</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="module">
+        import { createIcons, icons } from 'https://unpkg.com/lucide@0.303.0/dist/lucide.js';
+        window.lucide = { createIcons, icons };
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #e2e8f0;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useRef } = React;
+
+        const API_BASE_URL = window.location.origin;
+
+        const Icon = ({ name, className = "", size = 24 }) => {
+            const iconRef = useRef(null);
+            useEffect(() => {
+                if (iconRef.current && window.lucide) {
+                    iconRef.current.innerHTML = ''; // Clear previous icon
+                    window.lucide.createIcons({
+                        icons: { [name]: window.lucide.icons[name] },
+                        attrs: { width: size, height: size, class: className },
+                        container: iconRef.current
+                    });
+                }
+            }, [name, className, size]);
+            return <span ref={iconRef} className={`inline-flex items-center justify-center ${className}`}></span>;
+        };
+
+        // Book Card Component
+        const BookCard = ({ book }) => (
+            <div className="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col h-full border border-gray-200">
+                <h3 className="text-xl font-semibold text-gray-800 mb-2 leading-tight">{book.title}</h3>
+                <div className="flex-grow">
+                    {book.authors && book.authors.length > 0 && (
+                        <p className="text-sm text-gray-600 mb-1">
+                            <span className="font-medium">Author(s):</span> {book.authors.map(a => a.name).join(', ')}
+                        </p>
+                    )}
+                    {book.languages && book.languages.length > 0 && (
+                        <p className="text-sm text-gray-600 mb-1">
+                            <span className="font-medium">Language(s):</span> {book.languages.join(', ').toUpperCase()}
+                        </p>
+                    )}
+                    {book.subjects && book.subjects.length > 0 && (
+                        <p className="text-sm text-gray-600 mb-1">
+                            <span className="font-medium">Subjects:</span> {book.subjects.join(', ')}
+                        </p>
+                    )}
+                    {book.bookshelves && book.bookshelves.length > 0 && (
+                        <p className="text-sm text-gray-600 mb-1">
+                            <span className="font-medium">Bookshelves:</span> {book.bookshelves.join(', ')}
+                        </p>
+                    )}
+                    <p className="text-sm text-gray-700 mb-3 flex items-center">
+                        <Icon name="Download" size={16} className="mr-1 text-blue-500" />
+                        <span className="font-medium">Downloads:</span> {book.download_count.toLocaleString()}
+                    </p>
+                </div>
+
+                {book.formats && book.formats.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                        <p className="text-sm font-medium text-gray-700 mb-2">Download Formats:</p>
+                        <div className="flex flex-wrap gap-2">
+                            {book.formats.map((format, index) => (
+                                <a
+                                    key={index}
+                                    href={format.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center px-3 py-1 bg-blue-500 text-white text-xs font-medium rounded-full hover:bg-blue-600 transition-colors duration-200 shadow-sm"
+                                >
+                                    <Icon name="FileText" size={14} className="mr-1" />
+                                    {format.mime_type.split(';')[0].split('/').pop()}
+                                </a>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+
+        const App = () => {
+            const [books, setBooks] = useState([]);
+            const [totalCount, setTotalCount] = useState(0);
+            const [currentPage, setCurrentPage] = useState(1);
+            const [isLoading, setIsLoading] = useState(false);
+            const [error, setError] = useState(null);
+
+            const [filters, setFilters] = useState({
+                gutenberg_id: '',
+                language: '',
+                mime_type: '',
+                topic: '',
+                author: '',
+                title: ''
+            });
+
+            const handleFilterChange = (e) => {
+                const { name, value } = e.target;
+                setFilters(prev => ({ ...prev, [name]: value }));
+            };
+
+            const buildQueryParams = useCallback(() => {
+                const params = new URLSearchParams();
+                Object.entries(filters).forEach(([key, value]) => {
+                    if (value) {
+                        params.append(key, value);
+                    }
+                });
+                params.append('page', currentPage);
+                params.append('page_size', 25); // Hardcoded as per requirement
+                return params.toString();
+            }, [filters, currentPage]);
+
+            const fetchBooks = useCallback(async () => {
+                setIsLoading(true);
+                setError(null);
+                try {
+                    const queryParams = buildQueryParams();
+                    // API endpoint is now '/api/books' on the same Flask server
+                    const response = await fetch(`${API_BASE_URL}/api/books?${queryParams}`);
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    setBooks(data.results);
+                    setTotalCount(data.count);
+                } catch (e) {
+                    console.error("Failed to fetch books:", e);
+                    setError(e.message);
+                } finally {
+                    setIsLoading(false);
+                }
+            }, [buildQueryParams]);
+
+            useEffect(() => {
+                fetchBooks();
+            }, [fetchBooks]); // Re-fetch when filters or page changes
+
+            const handleSearch = () => {
+                setCurrentPage(1); // Reset to first page on new search
+                fetchBooks();
+            };
+
+            const handleClearFilters = () => {
+                setFilters({
+                    gutenberg_id: '',
+                    language: '',
+                    mime_type: '',
+                    topic: '',
+                    author: '',
+                    title: ''
+                });
+                setCurrentPage(1); // Reset page
+                // fetchBooks will be called via useEffect due to filters change
+            };
+
+            const totalPages = Math.ceil(totalCount / 25);
+
+            return (
+                <div className="min-h-screen bg-gray-100 p-4 sm:p-6 lg:p-8">
+                    <header className="bg-gradient-to-r from-blue-600 to-purple-700 text-white p-6 rounded-xl shadow-lg mb-8 text-center">
+                        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Ignite E-Library</h1>
+                        <p className="mt-2 text-lg opacity-90">Discover millions of free e-books</p>
+                    </header>
+
+                    <div className="bg-white p-6 rounded-xl shadow-lg mb-8 border border-gray-200">
+                        <h2 className="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
+                            <Icon name="Filter" className="mr-2 text-blue-500" />
+                            Filter Books
+                        </h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                            {Object.entries(filters).map(([key, value]) => (
+                                <div key={key}>
+                                    <label htmlFor={key} className="block text-sm font-medium text-gray-700 mb-1 capitalize">
+                                        {key.replace('_', ' ')}:
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id={key}
+                                        name={key}
+                                        value={value}
+                                        onChange={handleFilterChange}
+                                        placeholder={`e.g., ${key === 'gutenberg_id' ? '11,1342' : key === 'language' ? 'en,fr' : 'keyword'}`}
+                                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3 justify-end">
+                            <button
+                                onClick={handleClearFilters}
+                                className="flex-1 sm:flex-none px-6 py-2 bg-gray-200 text-gray-800 font-medium rounded-lg hover:bg-gray-300 transition-colors duration-200 shadow-md flex items-center justify-center"
+                            >
+                                <Icon name="XCircle" size={20} className="mr-2" />
+                                Clear Filters
+                            </button>
+                            <button
+                                onClick={handleSearch}
+                                className="flex-1 sm:flex-none px-6 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors duration-200 shadow-md flex items-center justify-center"
+                                disabled={isLoading}
+                            >
+                                {isLoading ? (
+                                    <svg className="animate-spin h-5 w-5 text-white mr-3" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                ) : (
+                                    <Icon name="Search" size={20} className="mr-2" />
+                                )}
+                                Search Books
+                            </button>
+                        </div>
+                    </div>
+
+                    {error && (
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl relative mb-8 shadow-md" role="alert">
+                            <strong className="font-bold">Error!</strong>
+                            <span className="block sm:inline ml-2">{error}</span>
+                        </div>
+                    )}
+
+                    {isLoading && !error && books.length === 0 && (
+                        <div className="text-center text-gray-600 text-lg mt-10">
+                            <Icon name="Loader2" size={48} className="animate-spin mx-auto text-blue-500" />
+                            <p className="mt-4">Loading books...</p>
+                        </div>
+                    )}
+
+                    {!isLoading && !error && totalCount === 0 && (
+                        <div className="text-center text-gray-600 text-lg mt-10 p-6 bg-white rounded-xl shadow-lg">
+                            <Icon name="BookOpen" size={48} className="mx-auto text-gray-400" />
+                            <p className="mt-4">No books found matching your criteria. Try adjusting your filters!</p>
+                        </div>
+                    )}
+
+                    {!isLoading && !error && totalCount > 0 && (
+                        <>
+                            <div className="text-gray-700 mb-4 text-center sm:text-left">
+                                <p className="text-lg font-medium">Showing <span className="font-bold">{books.length}</span> of <span className="font-bold">{totalCount.toLocaleString()}</span> books</p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
+                                {books.map(book => (
+                                    <BookCard key={book.id} book={book} />
+                                ))}
+                            </div>
+
+                            {totalPages > 1 && (
+                                <div className="flex justify-center items-center gap-4 mt-8">
+                                    <button
+                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                        disabled={currentPage === 1 || isLoading}
+                                        className="px-5 py-2 bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 shadow-md flex items-center"
+                                    >
+                                        <Icon name="ChevronLeft" size={20} className="mr-1" />
+                                        Previous
+                                    </button>
+                                    <span className="text-lg font-medium text-gray-700">
+                                        Page {currentPage} of {totalPages}
+                                    </span>
+                                    <button
+                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                        disabled={currentPage === totalPages || isLoading}
+                                        className="px-5 py-2 bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 shadow-md flex items-center"
+                                    >
+                                        Next
+                                        <Icon name="ChevronRight" size={20} className="ml-1" />
+                                    </button>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
