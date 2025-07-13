@@ -36,9 +36,3 @@ Follow these steps to get the application running on your local machine using Do
 * [Docker Desktop](https://www.docker.com/products/docker-desktop) (or Docker Engine) installed and running.
 * [PostgreSQL](https://www.postgresql.org/download/) installed and running locally, or accessible via a cloud provider.
 * `psql` command-line tool for database dump restoration.
-
-### 1. Clone the Repository
-
-```bash
-git clone <your-repo-url>
-cd project-gutenberg-explorer # Or your project's root directory name
